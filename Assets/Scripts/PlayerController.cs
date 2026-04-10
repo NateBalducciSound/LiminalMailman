@@ -12,6 +12,7 @@ public class PlayerController : MonoBehaviour
     public float jumpForce = 10f;
     public float coyoteTime = 0.15f;
     public float jumpBufferTime = 0.15f;
+    
 
     [Header("Wall")]
     public float wallJumpForce = 8f;
@@ -46,6 +47,7 @@ public class PlayerController : MonoBehaviour
     private Vector3 wallRunDirection;
     private float defaultColliderHeight;
     private Vector3 defaultColliderCenter;
+    private float wallJumpCooldown;
 
     // Input
     private float inputX;
@@ -103,6 +105,7 @@ public class PlayerController : MonoBehaviour
             wallRunTimer -= Time.deltaTime;
             if (wallRunTimer <= 0) StopWallRun();
         }
+        if (wallJumpCooldown > 0) wallJumpCooldown -= Time.deltaTime;
     }
 
     void CheckGround()
@@ -114,6 +117,9 @@ public class PlayerController : MonoBehaviour
     void CheckWalls()
     {
         if (isGrounded) return;
+
+        //jump cooldown for wall jump
+        if(wallJumpCooldown > 0) return;
 
         bool hitLeft  = Physics.Raycast(transform.position, -transform.right, out RaycastHit leftHit,  wallCheckDistance);
         bool hitRight = Physics.Raycast(transform.position,  transform.right, out RaycastHit rightHit, wallCheckDistance);
@@ -132,7 +138,7 @@ public class PlayerController : MonoBehaviour
             if (isWallSliding)
             {
                 Vector3 vel = rb.linearVelocity;
-                vel.y = Mathf.Max(vel.y, -2f);
+                vel.y = Mathf.Max(vel.y, -6f);
                 rb.linearVelocity = vel;
             }
         }
@@ -190,6 +196,7 @@ public class PlayerController : MonoBehaviour
         StopWallRun();
         isWallSliding = false;
         coyoteTimer = 0;
+        wallJumpCooldown = 0.4f;
         Vector3 jumpDir = (currentWallNormal + Vector3.up).normalized;
         rb.linearVelocity = jumpDir * wallJumpForce;
     }
@@ -214,8 +221,16 @@ public class PlayerController : MonoBehaviour
 
     void HandleWallRun()
     {
-        if (!isWallRunning) return;
-        rb.linearVelocity = wallRunDirection * wallRunSpeed;
+       if (!isWallRunning) return;
+
+       //end wall run if pushing away from wall
+       Vector3 inputDir = (transform.right * inputX + transform.forward * inputZ).normalized;
+       if (Vector3.Dot(inputDir, currentWallNormal) > 0.3f || inputDir.magnitude < 0.1f)
+        {
+            StopWallRun();
+            return;
+        }
+        rb.linearVelocity = new Vector3(wallRunDirection.x * wallRunSpeed, -0.5f, wallRunDirection.z * wallRunSpeed);
     }
 
     void HandleCrouch()
@@ -238,6 +253,6 @@ public class PlayerController : MonoBehaviour
     {
         isCrouching = false;
         col.size = new Vector3(col.size.x, defaultColliderHeight, col.size.z);
-        col.center = defaultColliderCenter;
+        col.center = defaultColliderCenter; 
     }
 }
