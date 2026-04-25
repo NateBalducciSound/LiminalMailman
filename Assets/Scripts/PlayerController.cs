@@ -1,4 +1,9 @@
+using System;
+using NUnit.Framework;
+using TMPro;
+using Unity.VisualScripting;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 public class PlayerController : MonoBehaviour
 {
@@ -32,6 +37,7 @@ public class PlayerController : MonoBehaviour
     [Header("References")]
     public Rigidbody rb;
     public BoxCollider col;
+    public TextMeshProUGUI currentState;
 
     // State
     public bool isWallRunning;
@@ -56,6 +62,11 @@ public class PlayerController : MonoBehaviour
     private bool crouchPressed;
     private bool crouchHeld;
 
+    [SerializeField] private InputActionReference moveAction;
+    [SerializeField] private InputActionReference jumpAction;
+    [SerializeField] private InputActionReference sprintAction;
+    [SerializeField] private InputActionReference crouchAction;
+
     void Start()
     {
         rb = GetComponent<Rigidbody>();
@@ -65,11 +76,30 @@ public class PlayerController : MonoBehaviour
         rb.freezeRotation = true;
     }
 
+    //Enable and Disable functions for input system
+
+    void OnEnable()
+    {
+        moveAction.action.Enable();
+        jumpAction.action.Enable();
+        sprintAction.action.Enable();
+        crouchAction.action.Enable();
+    }
+
+    void OnDisable()
+    {
+        moveAction.action.Disable();
+        jumpAction.action.Disable();
+        sprintAction.action.Disable();
+        crouchAction.action.Disable();
+    }
+
     void Update()
     {
         GatherInput();
         TickTimers();
         HandleCrouch();
+        getCurrentState();
     }
 
     void FixedUpdate()
@@ -83,14 +113,17 @@ public class PlayerController : MonoBehaviour
 
     void GatherInput()
     {
-        inputX = Input.GetAxisRaw("Horizontal");
-        inputZ = Input.GetAxisRaw("Vertical");
-        sprintHeld = Input.GetKey(KeyCode.LeftShift);
-        crouchPressed = Input.GetKeyDown(KeyCode.LeftControl);
-        crouchHeld = Input.GetKey(KeyCode.LeftControl);
+        Vector2 moveInput = moveAction.action.ReadValue<Vector2>();
+        inputX = moveInput.x;
+        inputZ = moveInput.y;
+        sprintHeld = sprintAction.action.IsPressed();
+        crouchPressed = crouchAction.action.WasPressedThisFrame();
+        crouchHeld = crouchAction.action.IsPressed();
 
-        if (Input.GetKeyDown(KeyCode.Space))
+        if (jumpAction.action.WasPressedThisFrame())
+        {
             jumpBufferTimer = jumpBufferTime;
+        }
     }
 
     void TickTimers()
@@ -128,6 +161,10 @@ public class PlayerController : MonoBehaviour
         {
             currentWallNormal = hitLeft ? leftHit.normal : rightHit.normal;
 
+            //check if player is pushing towards a wall normal
+            Vector3 inputDir = (transform.right * inputX + transform.forward * inputZ).normalized;
+            bool pressingTowardWall = Vector3.Dot(inputDir, -currentWallNormal) > 0.3f;
+
             Vector3 horizontal = new Vector3(rb.linearVelocity.x, 0, rb.linearVelocity.z);
             if (rb.linearVelocity.y < 0 && !isWallRunning)
             {
@@ -152,6 +189,7 @@ public class PlayerController : MonoBehaviour
     void HandleMovement()
     {
         if (isWallRunning) return;
+        if (wallJumpCooldown > 0) return;
 
         Vector3 inputDir = (transform.right * inputX + transform.forward * inputZ).normalized;
         float targetSpeed = sprintHeld ? sprintSpeed : moveSpeed;
@@ -230,7 +268,8 @@ public class PlayerController : MonoBehaviour
             StopWallRun();
             return;
         }
-        rb.linearVelocity = new Vector3(wallRunDirection.x * wallRunSpeed, -0.5f, wallRunDirection.z * wallRunSpeed);
+        float newY = Mathf.MoveTowards(rb.linearVelocity.y, -2f, 2f * Time.fixedDeltaTime);
+        rb.linearVelocity = new Vector3(wallRunDirection.x * wallRunSpeed, newY, wallRunDirection.z * wallRunSpeed);
     }
 
     void HandleCrouch()
@@ -254,5 +293,21 @@ public class PlayerController : MonoBehaviour
         isCrouching = false;
         col.size = new Vector3(col.size.x, defaultColliderHeight, col.size.z);
         col.center = defaultColliderCenter; 
+    }
+// script ref so we can know which states we are in
+    void getCurrentState()
+    {
+        if (isWallRunning)
+            currentState.text = "Wall Run";
+        else if (isWallSliding)
+            currentState.text = "Wall Slide";
+        else if (isCrouching)
+            currentState.text = "Crouch";
+        else if (sprintHeld && isGrounded)
+            currentState.text = "Sprint";
+        else if (!isGrounded)
+            currentState.text = "Jump";
+        else
+            currentState.text = "Idle";
     }
 }
