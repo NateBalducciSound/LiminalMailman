@@ -17,7 +17,7 @@ public class PlayerController : MonoBehaviour
     public float jumpForce = 10f;
     public float coyoteTime = 0.15f;
     public float jumpBufferTime = 0.15f;
-    
+
 
     [Header("Wall")]
     public float wallJumpForce = 8f;
@@ -36,7 +36,7 @@ public class PlayerController : MonoBehaviour
 
     [Header("References")]
     public Rigidbody rb;
-    public BoxCollider col;
+    public CapsuleCollider col;
     public TextMeshProUGUI currentState;
 
     // State
@@ -70,8 +70,8 @@ public class PlayerController : MonoBehaviour
     void Start()
     {
         rb = GetComponent<Rigidbody>();
-        col = GetComponent<BoxCollider>();
-        defaultColliderHeight = col.size.y;
+        col = GetComponent<CapsuleCollider>();
+        defaultColliderHeight = col.height;
         defaultColliderCenter = col.center;
         rb.freezeRotation = true;
     }
@@ -143,7 +143,7 @@ public class PlayerController : MonoBehaviour
 
     void CheckGround()
     {
-        float halfHeight = col.size.y * 0.5f + 0.05f;
+        float halfHeight = col.height * 0.5f + 0.05f;
         isGrounded = Physics.Raycast(transform.position, Vector3.down, halfHeight);
     }
 
@@ -218,7 +218,7 @@ public class PlayerController : MonoBehaviour
     {
         coyoteTimer = 0;
 
-        float feetY = transform.position.y - col.size.y * 0.5f;
+        float feetY = transform.position.y - col.height * 0.5f;
         bool ledgeHit = Physics.Raycast(transform.position, transform.forward, out RaycastHit hit, ledgeCheckDistance);
         bool isLowObject = ledgeHit && hit.point.y < feetY + ledgeMaxHeight;
 
@@ -281,7 +281,7 @@ public class PlayerController : MonoBehaviour
     void StartSlide()
     {
         isCrouching = true;
-        col.size = new Vector3(col.size.x, slideColliderHeight, col.size.z);
+        col.height = slideColliderHeight;
         col.center = new Vector3(col.center.x, slideColliderHeight * 0.5f, col.center.z);
 
         Vector3 slideDir = new Vector3(rb.linearVelocity.x, 0, rb.linearVelocity.z).normalized;
@@ -291,8 +291,8 @@ public class PlayerController : MonoBehaviour
     void StopSlide()
     {
         isCrouching = false;
-        col.size = new Vector3(col.size.x, defaultColliderHeight, col.size.z);
-        col.center = defaultColliderCenter; 
+        col.height = defaultColliderHeight;
+        col.center = defaultColliderCenter;
     }
 // script ref so we can know which states we are in
     void getCurrentState()
