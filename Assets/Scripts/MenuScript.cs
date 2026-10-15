@@ -4,6 +4,7 @@ using UnityEngine.SceneManagement;
 public class MenuScript : MonoBehaviour
 {
     public Button button;
+    public string scene;
     
     void Start()
     {
@@ -19,7 +20,7 @@ public class MenuScript : MonoBehaviour
     public void OnClick()
     {
        
-            SceneManager.LoadScene("0X_DemoLevel");
+            SceneManager.LoadScene(scene);
  
     }
 
