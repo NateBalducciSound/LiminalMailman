@@ -33,10 +33,6 @@ public class MailManager : MonoBehaviour
     // Points lost whenever a delivery expires
     public int strikePenalty = 20;
 
-    [Header("Fail")]
-    //old strike system
-    int maxStrikes = 3;
-
     [Header("Win")]
     [Tooltip("Number of delivery sets that must be finished to win the day")]
     public int dailyMax = 5;
@@ -50,61 +46,59 @@ public class MailManager : MonoBehaviour
     public TextMeshProUGUI interactPrompt;
     // Container panel for the list of active deliveries
     public GameObject objectivesPanel;
-    // Parent transform that objective entries get spawned under (e.g. a vertical layout group).
+    // Parent transform that objective entries get spawned under
     public Transform objectiveListParent;
     // Prefab for one row in the objectives list. Expected to contain a TextMeshProUGUI and an Image (radial timer).
     public GameObject objectiveEntryPrefab;
     public TextMeshProUGUI scoreText;
-    // Shows one "X" per strike taken, padded with spaces up to maxStrikes.
+    //old strikes
     public TextMeshProUGUI strikesText;
-    // Optional. Shows progress toward the daily goal, e.g. "Sets: 2/5".
     public TextMeshProUGUI setsText;
-    // 3D/UI arrow that points toward the most urgent delivery. Optional.
+    // 3D UI arrow
     public Transform arrowTransform;
-    // Shown when the player runs out of score. Optional.
+    //gameover
     public GameObject gameOverPanel;
     public TextMeshProUGUI gameOverScoreText;
-    // Shown when the player completes dailyMax sets. Optional. Works just like the game over panel.
+    // win panel
     public GameObject winPanel;
     public TextMeshProUGUI winScoreText;
+    //score ui element
     public Slider scoreSlider;
 
-    // Every delivery the player is currently responsible for, each with its own timer and UI row.
+    // Every delivery the player is currently responsible for
     private readonly List<ActiveDelivery> activeDeliveries = new();
-    // The MailPoint the player is currently looking at AND is allowed to interact with. Null if none.
+    // The MailPoint the player is currently looking at AND is allowed to interact with
     private MailPoint currentTarget;
-    // Lifetime count of successful deliveries. Drives difficulty scaling.
+    // Lifetime count of successful deliveries
     private int totalDeliveriesCompleted;
-    // How many full sets (batches of mail) the player has finished. Compared against dailyMax to win.
+    //completed sets
     private int setsCompleted;
     private int strikes;
     private int score;
-    // When true, Update stops doing anything (the run is over, by winning or losing).
     private bool gameOver;
-    // Ever-increasing counter used only to label entries as "Mail #1", "Mail #2", etc.
+    //counter used only to label entries as "Mail #1"etc.
     private int mailCounter;
 
-    // Cached list of every Deliver-type MailPoint in the scene, built once in Start.
+    // Cached list of every Deliver-type MailPoint
     private MailPoint[] allDeliverPoints;
 
-    // Register the singleton as early as possible so other scripts can use Instance in their own Start.
+    // Register the singleton as early as possible
     void Awake() => Instance = this;
 
     void Start()
     {
-        // Cache delivery points once; searching the scene every time we pick targets would be wasteful.
+        // Cache delivery points once
         allDeliverPoints = FindDeliverPoints();
-        //sets score to baseline
         score = baseScore;
 
-        // Start with all the dynamic UI hidden. It gets shown when mail is received.
+        // Start with all the dynamic UI hidden
         interactPrompt.gameObject.SetActive(false);
         objectivesPanel.SetActive(false);
         if (arrowTransform) arrowTransform.gameObject.SetActive(false);
         if (gameOverPanel) gameOverPanel.SetActive(false);
         if (winPanel) winPanel.SetActive(false);
 
-        // Draw the initial score, strikes and set counter.
+        // Draw the initial score, strikes and set counter
         RefreshUI();
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
@@ -112,10 +106,8 @@ public class MailManager : MonoBehaviour
 
     void Update()
     {
-        // Freeze all gameplay logic once the game has ended.
         if (gameOver) return;
 
-        // Order matters: the raycast decides currentTarget, which the interact step then reads.
         HandleRaycast();
         HandleInteract();
         TickDeliveries();
@@ -124,29 +116,22 @@ public class MailManager : MonoBehaviour
 
     }
 
-    // ------------------------------------------------------------------
-    // Interaction
-    // ------------------------------------------------------------------
-
-    /// <summary>
     /// Casts a ray from the center of the screen (the crosshair) and works out whether the player
     /// is looking at a MailPoint they can currently use. Updates currentTarget and the prompt text.
-    /// </summary>
     void HandleRaycast()
     {
-        // Ray through the middle of the screen, i.e. where the player is looking.
+        // Ray through the middle of the screen
         Ray ray = Camera.main.ScreenPointToRay(new Vector3(Screen.width * 0.5f, Screen.height * 0.5f));
 
         if (Physics.Raycast(ray, out RaycastHit hit, interactDistance))
         {
-            // Only objects with a MailPoint component are interactable.
+            // Only objects with a MailPoint component are interactable 
             MailPoint point = hit.collider.GetComponent<MailPoint>();
             if (point != null)
             {
-                // Mail can only be picked up when the player has nothing in progress,
-                // so the player can't stack up deliveries by spamming the receive point.
+
                 bool canReceive = point.pointType == MailPointType.Receive && activeDeliveries.Count == 0;
-                // A Deliver point is only usable if it's one of the current objectives.
+                // Deliver point only usable if one of current objectives
                 bool canDeliver = point.pointType == MailPointType.Deliver && IsActiveTarget(point);
 
                 if (canReceive || canDeliver)
@@ -154,12 +139,12 @@ public class MailManager : MonoBehaviour
                     interactPrompt.text = canReceive ? "Press E to receive mail" : "Press E to deliver mail";
                     interactPrompt.gameObject.SetActive(true);
                     currentTarget = point;
-                    return; // Found something valid, so skip the "nothing here" reset below.
+                    return;
                 }
             }
         }
 
-        // Nothing valid in range or in view: clear the target and hide the prompt.
+        // Nothing valid in range or in view: clear the target and hide the prompt
         currentTarget = null;
         interactPrompt.gameObject.SetActive(false);
     }
@@ -172,14 +157,13 @@ public class MailManager : MonoBehaviour
         }
         
     }
-    /// <summary>
-    /// Reacts to the E key when the player is looking at a valid MailPoint.
-    /// Uses the new Input System (Keyboard.current) rather than the legacy Input class.
-    /// </summary>
+
+    /// Reacts to the E key when the player is looking at a valid MailPoint
+
     void HandleInteract()
     {
         if (currentTarget == null) return;
-        // wasPressedThisFrame makes this fire once per key press, not every frame the key is held.
+        // wasPressedThisFrame makes this fire once per key press
         if (!Keyboard.current.eKey.wasPressedThisFrame) return;
 
         if (currentTarget.pointType == MailPointType.Receive)
@@ -188,14 +172,8 @@ public class MailManager : MonoBehaviour
             DeliverMail(currentTarget);
     }
 
-    // ------------------------------------------------------------------
-    // Receiving and delivering
-    // ------------------------------------------------------------------
+    /// Starts a new "batch" (set) of deliveries. Decides how many objectives to hand out
 
-    /// <summary>
-    /// Starts a new "batch" (set) of deliveries. Decides how many objectives to hand out and how much time
-    /// each gets (both depend on progress), picks random destinations, and creates a UI row for each.
-    /// </summary>
     void ReceiveMail()
     {
         int count = ComputeObjectiveCount();
@@ -207,38 +185,36 @@ public class MailManager : MonoBehaviour
         {
             mailCounter++;
 
-            // Spawn a UI row for this delivery. If the prefab or parent isn't assigned we still
-            // track the delivery, just without a visible entry (null is handled everywhere else).
+            // Spawn a UI row for this delivery
+            // track the delivery
             var entry = objectiveEntryPrefab && objectiveListParent
                 ? Instantiate(objectiveEntryPrefab, objectiveListParent)
                 : null;
 
-            // Randomize this delivery's timer within +/- timerVariation seconds of the base.
-            // Clamped to at least 1 second so a large variation can never create an instantly-expiring delivery.
+            // Randomize this delivery's timer
+            // Clamped to at least 1 second
             float timer = Mathf.Max(1f, baseTimer + Random.Range(-timerVariation, timerVariation));
 
             activeDeliveries.Add(new ActiveDelivery(target, timer, mailCounter, entry));
         }
 
-        // Show the objective list and arrow now that there's something to deliver.
+        // Show the objective list and arrow now that there's something to deliver
         objectivesPanel.SetActive(activeDeliveries.Count > 0);
         if (arrowTransform) arrowTransform.gameObject.SetActive(activeDeliveries.Count > 0);
         mailPointVis.SetActive(false);
     }
 
-    /// <summary>
-    /// Completes the delivery for the given target: awards points, counts the delivery toward difficulty,
-    /// removes it from the active list, and checks whether that finished the whole set.
-    /// </summary>
+
+    /// Completes the delivery for the given target
+    /// removes it from the active list
     void DeliverMail(MailPoint target)
     {
-        // Look up which active delivery this point belongs to. Should always exist because
-        // HandleRaycast only allows interaction with active targets, but guard anyway.
+        // Look up which active delivery this point belongs to
+        // HandleRaycast only allows interaction with active targets
         ActiveDelivery delivery = activeDeliveries.Find(d => d.Target == target);
         if (delivery == null) return;
 
         // Speed bonus scales linearly with the fraction of time left:
-        // delivering instantly gives the full bonus, delivering at the last moment gives ~0.
         int speedBonus = Mathf.RoundToInt(maxSpeedBonus * (delivery.Timer / delivery.MaxTimer));
         score += basePointsPerDelivery + speedBonus;
         totalDeliveriesCompleted++;
@@ -248,11 +224,7 @@ public class MailManager : MonoBehaviour
         CheckSetFinished();
     }
 
-    /// <summary>
-    /// Called after any delivery is resolved (delivered or expired). If nothing is left in the active list,
-    /// the set is over: bump the set counter and trigger the win if the daily goal has been reached.
-    /// A set counts as finished even if some of its deliveries expired; the score penalty already punishes those.
-    /// </summary>
+    /// handles setscompleted counter
     void CheckSetFinished()
     {
         if (activeDeliveries.Count > 0) return;
@@ -264,17 +236,11 @@ public class MailManager : MonoBehaviour
             TriggerWin();
     }
 
-    // ------------------------------------------------------------------
-    // Timers and failure
-    // ------------------------------------------------------------------
-
-    /// <summary>
     /// Counts down every active delivery, updates its UI row, and handles expiry (score penalty / game over).
     /// Also keeps the objectives panel and arrow visibility in sync with whether anything is active.
-    /// </summary>
     void TickDeliveries()
     {
-        // Iterate backwards so removing an item mid-loop doesn't skip or break the iteration.
+        // Iterate backwards so removing an item mid-loop doesn't skip or break the iteration
         for (int i = activeDeliveries.Count - 1; i >= 0; i--)
         {
             ActiveDelivery d = activeDeliveries[i];
@@ -283,52 +249,44 @@ public class MailManager : MonoBehaviour
 
             if (d.Timer <= 0f)
             {
-                // Missed delivery: costs points and the delivery disappears.
-                // Note that expired deliveries do NOT count toward totalDeliveriesCompleted.
+                // Missed delivery: costs points and the delivery disappears
                 score -= strikePenalty;
                 RemoveDelivery(d);
                 RefreshUI();
 
-                // Losing takes priority over finishing the set: if this expiry zeroed the score, the run is lost.
+                // Losing takes priority over finishing the set
                 if (score <= 0)
                 {
                     TriggerGameOver();
-                    return; // Stop immediately; the list was just cleared and the UI hidden.
+                    return; // Stop immediately; the list was just cleared and the UI hidden
                 }
 
-                // If that was the last delivery in the set, count the set (this may trigger the win).
+                // If that was the last delivery in the set
                 CheckSetFinished();
-                if (gameOver) return; // Won the game; the list and UI have already been cleaned up.
+                if (gameOver) return; // Won the game
             }
         }
 
-        // Keep UI visibility matching reality. This also hides the panel after the last delivery
-        // is completed or expires, so the player can go pick up more mail.
+        // Keep UI visibility matching reality. hides the panel after the last deliveryis completed
         bool hasActive = activeDeliveries.Count > 0;
         objectivesPanel.SetActive(hasActive);
         if (arrowTransform) arrowTransform.gameObject.SetActive(hasActive);
     }
 
-    // ------------------------------------------------------------------
-    // Navigation arrow
-    // ------------------------------------------------------------------
 
-    // Arrow points at whichever active delivery has the least time remaining
+
     void HandleArrow()
     {
         if (arrowTransform == null || activeDeliveries.Count == 0) return;
 
-        // Linear scan for the delivery with the smallest remaining timer (the most urgent one).
+        // handle "urgent"/tracking delivery
         ActiveDelivery urgent = activeDeliveries[0];
         for (int i = 1; i < activeDeliveries.Count; i++)
             if (activeDeliveries[i].Timer < urgent.Timer) urgent = activeDeliveries[i];
-
-        // Direction from the arrow to the target's position in world space.
+        /////////////////////////////////////////////////////////////////////////////////////////
+        // Direction from the arrow to the target's position in world space
         Vector3 dir = urgent.Target.transform.position - arrowTransform.position;
 
-        // LookRotation errors on a zero vector, so skip if the arrow is exactly on the target.
-        // The extra 180 degree Y rotation compensates for the arrow model's forward axis facing
-        // the opposite way (i.e. the mesh points backwards by default).
         if (dir != Vector3.zero)
             arrowTransform.rotation = Quaternion.LookRotation(dir) * Quaternion.Euler(0f, 180f, 0f);
     }
