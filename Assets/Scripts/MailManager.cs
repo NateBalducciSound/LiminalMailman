@@ -44,11 +44,13 @@ public class MailManager : MonoBehaviour
 
     [Header("UI")]
     public TextMeshProUGUI interactPrompt;
+    public TextMeshProUGUI returnPrompt;
     // Container panel for the list of active deliveries
     public GameObject objectivesPanel;
     // Parent transform that objective entries get spawned under
     public Transform objectiveListParent;
     // Prefab for one row in the objectives list. Expected to contain a TextMeshProUGUI and an Image (radial timer).
+    // Optionally also an Image child named "SelectedIndicator", which is shown only while that row is being tracked.
     public GameObject objectiveEntryPrefab;
     public TextMeshProUGUI scoreText;
     //old strikes
@@ -65,8 +67,13 @@ public class MailManager : MonoBehaviour
     //score ui element
     public Slider scoreSlider;
 
+
+    public TextMeshProUGUI debugText;
+
     // Every delivery the player is currently responsible for
     private readonly List<ActiveDelivery> activeDeliveries = new();
+    // The delivery the arrow points at. Changed with the scroll wheel.
+    private ActiveDelivery trackedDelivery;
     // The MailPoint the player is currently looking at AND is allowed to interact with
     private MailPoint currentTarget;
     // Lifetime count of successful deliveries
@@ -78,6 +85,7 @@ public class MailManager : MonoBehaviour
     private bool gameOver;
     //counter used only to label entries as "Mail #1"etc.
     private int mailCounter;
+    bool hasFinishedSet;
 
     // Cached list of every Deliver-type MailPoint
     private MailPoint[] allDeliverPoints;
@@ -97,6 +105,7 @@ public class MailManager : MonoBehaviour
         if (arrowTransform) arrowTransform.gameObject.SetActive(false);
         if (gameOverPanel) gameOverPanel.SetActive(false);
         if (winPanel) winPanel.SetActive(false);
+        returnPrompt.gameObject.SetActive(false);
 
         // Draw the initial score, strikes and set counter
         RefreshUI();
@@ -107,12 +116,12 @@ public class MailManager : MonoBehaviour
     void Update()
     {
         if (gameOver) return;
-
+        HandleReturnVis();
         HandleRaycast();
         HandleInteract();
         TickDeliveries();
+        HandleTrackingSelection();
         HandleArrow();
-        HandleNewTasks();
 
     }
 
@@ -149,13 +158,21 @@ public class MailManager : MonoBehaviour
         interactPrompt.gameObject.SetActive(false);
     }
 
-    void HandleNewTasks()
+    void HandleReturnVis()
     {
-        if(activeDeliveries.Count == 0)
+        if (activeDeliveries.Count == 0)
         {
             mailPointVis.SetActive(true);
+            if (hasFinishedSet)
+            {
+                returnPrompt.gameObject.SetActive(true);
+            }
         }
-        
+        else
+        {
+            returnPrompt.gameObject.SetActive(false);
+        }
+
     }
 
     /// Reacts to the E key when the player is looking at a valid MailPoint
@@ -219,6 +236,8 @@ public class MailManager : MonoBehaviour
         score += basePointsPerDelivery + speedBonus;
         totalDeliveriesCompleted++;
 
+        hasFinishedSet = true;
+
         RemoveDelivery(delivery);
         RefreshUI();
         CheckSetFinished();
@@ -240,12 +259,15 @@ public class MailManager : MonoBehaviour
     /// Also keeps the objectives panel and arrow visibility in sync with whether anything is active.
     void TickDeliveries()
     {
+        // The camera is the player's eyes (same one HandleRaycast uses), so distances are measured from it
+        Vector3 playerPos = Camera.main.transform.position;
+
         // Iterate backwards so removing an item mid-loop doesn't skip or break the iteration
         for (int i = activeDeliveries.Count - 1; i >= 0; i--)
         {
             ActiveDelivery d = activeDeliveries[i];
             d.Timer -= Time.deltaTime;
-            d.UpdateEntryUI();
+            d.UpdateEntryUI(playerPos);
 
             if (d.Timer <= 0f)
             {
@@ -262,6 +284,7 @@ public class MailManager : MonoBehaviour
                 }
 
                 // If that was the last delivery in the set
+                hasFinishedSet = true;
                 CheckSetFinished();
                 if (gameOver) return; // Won the game
             }
@@ -274,18 +297,50 @@ public class MailManager : MonoBehaviour
     }
 
 
+    /// Keeps trackedDelivery valid and lets the player change it with the scroll wheel.
+    /// Scroll up = previous delivery in the list, scroll down = next (wraps around at either end).
+    void HandleTrackingSelection()
+    {
+        if (activeDeliveries.Count == 0)
+        {
+            trackedDelivery = null;
+            return;
+        }
+
+        // Nothing tracked yet (new set), or the tracked delivery was just delivered/expired:
+        // fall back to the first remaining delivery
+        if (trackedDelivery == null || !activeDeliveries.Contains(trackedDelivery))
+            SetTracked(activeDeliveries[0]);
+
+        // Nothing to choose between, or no mouse connected
+        if (activeDeliveries.Count < 2 || Mouse.current == null) return;
+
+        // Only the sign matters; the raw value differs between platforms
+        float scroll = Mouse.current.scroll.ReadValue().y;
+        if (Mathf.Approximately(scroll, 0f)) return;
+
+        int index = activeDeliveries.IndexOf(trackedDelivery);
+        int step = scroll > 0f ? -1 : 1;
+        // + Count before % so stepping back from index 0 wraps to the end instead of going negative
+        index = (index + step + activeDeliveries.Count) % activeDeliveries.Count;
+        SetTracked(activeDeliveries[index]);
+    }
+
+    /// Sets which delivery the arrow tracks and updates every row's "selected" indicator to match
+    void SetTracked(ActiveDelivery d)
+    {
+        trackedDelivery = d;
+        foreach (ActiveDelivery a in activeDeliveries)
+            a.SetSelected(a == trackedDelivery);
+    }
+
 
     void HandleArrow()
     {
-        if (arrowTransform == null || activeDeliveries.Count == 0) return;
+        if (arrowTransform == null || trackedDelivery == null) return;
 
-        // handle "urgent"/tracking delivery
-        ActiveDelivery urgent = activeDeliveries[0];
-        for (int i = 1; i < activeDeliveries.Count; i++)
-            if (activeDeliveries[i].Timer < urgent.Timer) urgent = activeDeliveries[i];
-        /////////////////////////////////////////////////////////////////////////////////////////
-        // Direction from the arrow to the target's position in world space
-        Vector3 dir = urgent.Target.transform.position - arrowTransform.position;
+        // Direction from the arrow to the tracked target's position in world space
+        Vector3 dir = trackedDelivery.Target.transform.position - arrowTransform.position;
 
         if (dir != Vector3.zero)
             arrowTransform.rotation = Quaternion.LookRotation(dir) * Quaternion.Euler(0f, 180f, 0f);
@@ -391,6 +446,7 @@ public class MailManager : MonoBehaviour
         foreach (ActiveDelivery d in activeDeliveries)
             if (d.EntryObject) Destroy(d.EntryObject);
         activeDeliveries.Clear();
+        trackedDelivery = null;
 
         // Hide all in-game HUD elements.
         objectivesPanel.SetActive(false);
@@ -408,7 +464,7 @@ public class MailManager : MonoBehaviour
     public void Restart()
     {
         UnityEngine.SceneManagement.SceneManager.LoadScene(
-            UnityEngine.SceneManagement.SceneManager.GetActiveScene().buildIndex);
+        UnityEngine.SceneManagement.SceneManager.GetActiveScene().buildIndex);
     }
 
 
@@ -416,6 +472,9 @@ public class MailManager : MonoBehaviour
     /// and the UI row that displays it. Not a MonoBehaviour, so it's created with 'new'.
     class ActiveDelivery
     {
+        // Name of the child Image in the objectiveEntryPrefab that marks the tracked delivery
+        private const string SelectedIndicatorName = "SelectedIndicator";
+
         // Destination MailPoint
         public MailPoint Target;
         // Seconds remaining
@@ -430,6 +489,8 @@ public class MailManager : MonoBehaviour
         // Cached child components of the UI row so we don't look them up every frame
         private readonly TextMeshProUGUI entryText;
         private readonly Image timerCircle;
+        // The "this one is being tracked" marker on the row. Null if the prefab doesn't have one.
+        private readonly GameObject selectedIndicator;
 
         public ActiveDelivery(MailPoint target, float timer, int number, GameObject entry)
         {
@@ -443,19 +504,40 @@ public class MailManager : MonoBehaviour
             if (entry)
             {
                 entryText = entry.GetComponentInChildren<TextMeshProUGUI>();
-                timerCircle = entry.GetComponentInChildren<Image>();
+
+                // Sort the row's Images by role: the one named SelectedIndicator is the tracking marker,
+                // and the first other Image is the radial timer. (includeInactive = true so the marker
+                // is still found if it's disabled in the prefab.)
+                foreach (Image img in entry.GetComponentsInChildren<Image>(true))
+                {
+                    if (img.gameObject.name == SelectedIndicatorName)
+                        selectedIndicator = img.gameObject;
+                    else if (timerCircle == null)
+                        timerCircle = img;
+                }
+
+                // Hidden until this delivery becomes the tracked one
+                if (selectedIndicator) selectedIndicator.SetActive(false);
             }
         }
 
+        /// Shows or hides the tracking marker on this delivery's row
+        public void SetSelected(bool selected)
+        {
+            if (selectedIndicator) selectedIndicator.SetActive(selected);
+        }
 
-        /// Refreshes this delivery's UI row
+
+        /// Refreshes this delivery's UI row: the time left, the distance from the player on a second line,
         /// and the radial fill, which shrinks from 1 to 0 as time runs out.
-        public void UpdateEntryUI()
+        public void UpdateEntryUI(Vector3 playerPos)
         {
             // Clamp so we never display a negative time on the frame
             float t = Mathf.Max(Timer, 0f);
+            // Straight-line distance from the player to this delivery's destination, in whole world units
+            int distance = Mathf.RoundToInt(Vector3.Distance(playerPos, Target.transform.position));
             if (entryText)
-                entryText.text = "Mail #" + mailNumber + "   " + Mathf.CeilToInt(t) + "s";
+                entryText.text = "Mail #" + mailNumber + "  " + Mathf.CeilToInt(t) + "s\n" + "Dist: " + distance + "M";
             if (timerCircle)
                 timerCircle.fillAmount = t / MaxTimer;
         }
